@@ -75,14 +75,29 @@ jobs:
           path: reports/
           retention-days: 30
 
-      - name: Publication dans l'onglet Security (code scanning)
-        # Non-bloquant : indisponible sur repo privé sans GitHub Advanced
-        # Security (voir la même remarque dans secrets-scan.yml)
+      - name: Publication du scan Vaultwarden dans l'onglet Security
         if: always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: reports/
+          sarif_file: reports/trivy-vaultwarden-image.sarif
+          category: trivy-vaultwarden-image
+
+      - name: Publication du scan Caddy dans l'onglet Security
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/trivy-caddy-image.sarif
+          category: trivy-caddy-image
+
+      - name: Publication du scan IaC dans l'onglet Security
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/trivy-iac.sarif
+          category: trivy-iac-config
 
       - name: Vérifier si des vulnérabilités HIGH/CRITICAL ont été trouvées
         if: steps.scan_vaultwarden.outcome == 'failure' || steps.scan_caddy.outcome == 'failure' || steps.scan_iac.outcome == 'failure'
