@@ -29,6 +29,13 @@ jobs:
           docker cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-local-ca.crt
           echo "NODE_EXTRA_CA_CERTS=$PWD/caddy-local-ca.crt" >> "$GITHUB_ENV"
 
+      - name: Réinitialiser un éventuel état bw résiduel
+        # Un runner self-hébergé est une machine persistante : contrairement
+        # à un runner cloud (toujours vierge), une session bw d'un run
+        # précédent (ou d'un test manuel) peut encore être active ici.
+        # On force donc une déconnexion propre avant de commencer.
+        run: bw logout || true
+
       - name: Pointer le CLI Bitwarden vers notre instance Vaultwarden
         run: bw config server "$VW_SERVER_URL"
 
