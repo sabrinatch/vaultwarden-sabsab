@@ -1,0 +1,94 @@
+name: Container & IaC Scan (Trivy)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch: {}
+  schedule:
+    # Les vulnérabilités des images sont découvertes en continu, même sans
+    # changement de code : un scan hebdomadaire capte les nouvelles CVE
+    # publiées entre-temps sur des images qu'on n'a pas touchées.
+    - cron: "0 6 * * 1"   # tous les lundis à 6h
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Créer le dossier de rapports
+        run: mkdir -p reports
+
+      - name: Scan de l'image Vaultwarden
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest \
+            image \
+              --format sarif \
+              --output /reports/trivy-vaultwarden-image.sarif \
+              --severity HIGH,CRITICAL \
+              vaultwarden/server:latest
+        continue-on-error: true
+        id: scan_vaultwarden
+
+      - name: Scan de l'image Caddy
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest \
+            image \
+              --format sarif \
+              --output /reports/trivy-caddy-image.sarif \
+              --severity HIGH,CRITICAL \
+              caddy:2-alpine
+        continue-on-error: true
+        id: scan_caddy
+
+      - name: Analyse statique de l'infrastructure as code (docker-compose)
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest \
+            config \
+              --format sarif \
+              --output /reports/trivy-iac.sarif \
+              /repo
+        continue-on-error: true
+        id: scan_iac
+
+      - name: Upload des rapports en artefact CI
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports
+          path: reports/
+          retention-days: 30
+
+      - name: Publication dans l'onglet Security (code scanning)
+        # Non-bloquant : indisponible sur repo privé sans GitHub Advanced
+        # Security (voir la même remarque dans secrets-scan.yml)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/
+
+      - name: Vérifier si des vulnérabilités HIGH/CRITICAL ont été trouvées
+        if: steps.scan_vaultwarden.outcome == 'failure' || steps.scan_caddy.outcome == 'failure' || steps.scan_iac.outcome == 'failure'
+        run: |
+          echo "::warning::Trivy a détecté des vulnérabilités ou mauvaises configurations (sévérité HIGH/CRITICAL). Voir les rapports en artefact ou l'onglet Security."
+          # Volontairement un warning et non un échec bloquant : les images
+          # de base (Vaultwarden/Caddy) évoluent hors de notre contrôle direct,
+          # un score rouge ici doit déclencher une revue humaine plutôt
+          # qu'un blocage automatique du déploiement.
