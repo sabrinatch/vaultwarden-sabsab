@@ -21,6 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Exporter le certificat racine local de Caddy pour Node.js
+        # Node.js n'utilise pas le trousseau système macOS : il faut lui
+        # indiquer explicitement la CA locale générée par Caddy, sans quoi
+        # le CLI bw (basé sur Node) rejette le certificat TLS auto-signé.
+        run: |
+          docker cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-local-ca.crt
+          echo "NODE_EXTRA_CA_CERTS=$PWD/caddy-local-ca.crt" >> "$GITHUB_ENV"
+
       - name: Pointer le CLI Bitwarden vers notre instance Vaultwarden
         run: bw config server "$VW_SERVER_URL"
 
@@ -73,6 +81,6 @@ jobs:
       - name: Nettoyage (toujours exécuté, même en cas d'échec)
         if: always()
         run: |
-          rm -f .env.runtime
+          rm -f .env.runtime caddy-local-ca.crt
           bw lock || true
           bw logout || true
