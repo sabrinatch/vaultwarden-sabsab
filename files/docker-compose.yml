@@ -1,0 +1,50 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    environment:
+      # Empêche n'importe qui de créer un compte : seule la personne connaissant
+      # l'admin token peut inviter des utilisateurs. Bonne pratique de base.
+      SIGNUPS_ALLOWED: "false"
+      DOMAIN: "https://${DOMAIN:-localhost}"
+      # Le token admin est un HASH Argon2 (jamais le mot de passe en clair),
+      # généré via la commande fournie dans le README.
+      ADMIN_TOKEN: "${ADMIN_TOKEN}"
+      WEBSOCKET_ENABLED: "true"
+      # Journalisation : utile pour ta piste d'audit (qui accède à quoi, quand)
+      LOG_LEVEL: "info"
+      EXTENDED_LOGGING: "true"
+    volumes:
+      - vw-data:/data
+    networks:
+      - internal
+    # Aucun port n'est publié ici : Vaultwarden n'est joignable
+    # que par Caddy, via le réseau Docker interne.
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    environment:
+      DOMAIN: "${DOMAIN:-localhost}"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - internal
+    depends_on:
+      - vaultwarden
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  vw-data:
+  caddy-data:
+  caddy-config:

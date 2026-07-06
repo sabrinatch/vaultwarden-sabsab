@@ -1,0 +1,14 @@
+# Secrets et configuration locale
+.env
+*.env
+!.env.example
+
+# Données persistantes (contiennent le coffre chiffré, ne pas versionner)
+data/
+
+# Fichiers macOS
+.DS_Store
+
+# Rapports générés (brique 6) — on décidera plus tard si on en versionne
+# une synthèse, mais pas les rapports bruts complets
+reports/*.raw.json

@@ -1,0 +1,18 @@
+{$DOMAIN:localhost} {
+	encode gzip
+
+	# Vaultwarden utilise des websockets pour les notifications temps réel
+	# (sync instantanée entre appareils). Il faut router ces chemins
+	# spécifiquement vers le port websocket avant la règle générale.
+	reverse_proxy /notifications/hub/negotiate vaultwarden:80
+	reverse_proxy /notifications/hub vaultwarden:3012
+
+	reverse_proxy vaultwarden:80
+
+	# "tls internal" : Caddy génère et gère sa propre autorité de certification
+	# locale. Suffisant et sécurisé pour une démo en localhost.
+	# En production, on remplacerait par un vrai domaine et Caddy irait
+	# chercher un certificat Let's Encrypt automatiquement (aucune config
+	# supplémentaire nécessaire).
+	tls internal
+}

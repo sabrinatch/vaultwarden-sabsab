@@ -1,0 +1,10 @@
+{$DOMAIN:localhost} {
+	encode gzip
+
+	reverse_proxy /notifications/hub/negotiate vaultwarden:80
+	reverse_proxy /notifications/hub vaultwarden:3012
+
+	reverse_proxy vaultwarden:80
+
+	tls internal
+}
