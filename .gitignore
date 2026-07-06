@@ -2,6 +2,7 @@
 .env
 *.env
 !.env.example
+.env.runtime
 
 # Données persistantes (contiennent le coffre chiffré, ne pas versionner)
 data/
@@ -12,3 +13,4 @@ data/
 # Rapports générés (brique 6) — on décidera plus tard si on en versionne
 # une synthèse, mais pas les rapports bruts complets
 reports/*.raw.json
+

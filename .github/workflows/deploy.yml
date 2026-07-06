@@ -1,0 +1,78 @@
+name: Deploy (injection dynamique des secrets)
+
+on:
+  push:
+    branches: ["main"]
+    # Volontairement PAS de déclenchement sur pull_request : un runner
+    # self-hébergé ne doit jamais exécuter du code venant d'une PR externe
+    # (risque d'exécution de code arbitraire sur la machine hôte).
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    env:
+      BW_CLIENTID: ${{ secrets.VW_CI_CLIENT_ID }}
+      BW_CLIENTSECRET: ${{ secrets.VW_CI_CLIENT_SECRET }}
+      VW_SERVER_URL: ${{ secrets.VW_SERVER_URL }}
+      VW_CI_MASTER_PASSWORD: ${{ secrets.VW_CI_MASTER_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pointer le CLI Bitwarden vers notre instance Vaultwarden
+        run: bw config server "$VW_SERVER_URL"
+
+      - name: Connexion avec la clé API du compte de service CI
+        run: bw login --apikey
+
+      - name: Déverrouiller le coffre et récupérer une session
+        id: unlock
+        run: |
+          BW_SESSION=$(bw unlock "$VW_CI_MASTER_PASSWORD" --raw)
+          # Masque la session dans les logs (même si ce n'est pas un secret
+          # métier, elle donne un accès temporaire au coffre déverrouillé).
+          echo "::add-mask::$BW_SESSION"
+          echo "BW_SESSION=$BW_SESSION" >> "$GITHUB_ENV"
+
+      - name: Synchroniser le coffre
+        run: bw sync --session "$BW_SESSION"
+
+      - name: Récupérer les secrets applicatifs par leur nom
+        id: fetch_secrets
+        run: |
+          DB_PASSWORD=$(bw get password app-db-password --session "$BW_SESSION")
+          API_KEY=$(bw get password app-api-key --session "$BW_SESSION")
+
+          # ::add-mask:: doit être fait AVANT toute impression, pour que
+          # GitHub censure la valeur dans tous les logs futurs du job,
+          # y compris en cas d'erreur qui l'afficherait par accident.
+          echo "::add-mask::$DB_PASSWORD"
+          echo "::add-mask::$API_KEY"
+
+          echo "DB_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
+          echo "API_KEY=$API_KEY" >> "$GITHUB_ENV"
+
+      - name: Générer le fichier d'environnement de déploiement (local, non versionné)
+        run: |
+          cat > .env.runtime <<EOF
+          DB_PASSWORD=${DB_PASSWORD}
+          API_KEY=${API_KEY}
+          EOF
+          echo "Fichier .env.runtime généré avec succès (contenu non affiché, secrets masqués)."
+          ls -la .env.runtime
+
+      - name: Simuler l'utilisation des secrets par l'application
+        run: |
+          echo "Déploiement simulé : les secrets ont été injectés dynamiquement"
+          echo "sans jamais transiter par le code source ni les secrets GitHub."
+          # Ici, en conditions réelles : docker compose --env-file .env.runtime up -d
+          # ou tout autre appel de déploiement consommant .env.runtime
+
+      - name: Nettoyage (toujours exécuté, même en cas d'échec)
+        if: always()
+        run: |
+          rm -f .env.runtime
+          bw lock || true
+          bw logout || true
