@@ -1,0 +1,74 @@
+name: Rotate Admin Token (Vaultwarden)
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Rotation automatique tous les 1ers du mois à 3h — ajuster selon la
+    # politique de rotation réelle souhaitée (voir scripts/README.md).
+    - cron: "0 3 1 * *"
+
+jobs:
+  rotate:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Générer un nouveau mot de passe admin aléatoire
+        id: gen_password
+        run: |
+          NEW_PASSWORD=$(openssl rand -base64 32)
+          echo "::add-mask::$NEW_PASSWORD"
+          echo "NEW_PASSWORD=$NEW_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Hasher le mot de passe en Argon2id (via l'outil argon2, scriptable)
+        # 'vaultwarden hash' lit le mot de passe depuis le terminal directement
+        # et ne peut pas être automatisé (échec en environnement non-interactif).
+        # On utilise l'implémentation de référence argon2, qui accepte une
+        # entrée standard classique. Vaultwarden vérifie un hash Argon2id à
+        # partir des paramètres encodés dans la chaîne PHC elle-même : les
+        # paramètres n'ont donc pas besoin d'être identiques à ceux que
+        # 'vaultwarden hash' aurait choisis par défaut pour être valides.
+        id: hash_password
+        run: |
+          SALT=$(openssl rand -hex 16)
+          NEW_HASH=$(echo -n "$NEW_PASSWORD" | argon2 "$SALT" -id -m 16 -t 3 -p 4 -l 32 -e)
+          echo "::add-mask::$NEW_HASH"
+          echo "NEW_HASH=$NEW_HASH" >> "$GITHUB_ENV"
+
+      - name: Mettre à jour .env avec le nouveau hash
+        run: |
+          # Échappe les $ pour Docker Compose (voir l'incident rencontré en brique 1)
+          ESCAPED_HASH=$(echo "$NEW_HASH" | sed 's/\$/\$\$/g')
+          sed -i.bak "s|^ADMIN_TOKEN=.*|ADMIN_TOKEN=${ESCAPED_HASH}|" .env
+          rm -f .env.bak
+
+      - name: Redémarrer Vaultwarden avec le nouveau token
+        run: docker compose up -d --force-recreate vaultwarden
+
+      - name: Sauvegarder le nouveau mot de passe en clair, localement uniquement
+        # Écrit UNIQUEMENT sur le disque du runner self-hébergé (ta machine).
+        # Ne transite jamais par les logs GitHub ni par un artefact CI.
+        run: |
+          mkdir -p secrets-rotation
+          echo "Nouveau mot de passe admin généré le $(date) : $NEW_PASSWORD" > "secrets-rotation/admin-password-$(date +%Y%m%d-%H%M%S).txt"
+          echo "Fichier écrit localement dans secrets-rotation/ (jamais transmis à GitHub)."
+
+      - name: Générer le rapport de rotation (artefact CI)
+        run: |
+          mkdir -p reports
+          {
+            echo "=== Rotation du token admin Vaultwarden ==="
+            echo "Date : $(date)"
+            echo "Déclenchement : ${{ github.event_name }}"
+            echo "Statut : succès"
+            echo "Nouveau mot de passe : stocké localement sur le runner uniquement (non inclus dans ce rapport)"
+          } > "reports/rotation-admin-token-$(date +%Y%m%d-%H%M%S).log"
+
+      - name: Upload du rapport de rotation en artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rotation-report
+          path: reports/rotation-admin-token-*.log
+          retention-days: 90

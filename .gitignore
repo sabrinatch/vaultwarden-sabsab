@@ -10,7 +10,18 @@ data/
 # Fichiers macOS
 .DS_Store
 
+# Sauvegardes chiffrées et clé privée (brique 5)
+backups/*.tar.gz
+backups/*.tar.gz.age
+scripts/age-private-key.txt
+
 # Rapports générés (brique 6) — on décidera plus tard si on en versionne
 # une synthèse, mais pas les rapports bruts complets
 reports/*.raw.json
 
+# Asset de démo (secrets factices) - jamais commité, copié manuellement
+# uniquement au moment de la démo live sur une branche dédiée
+demo-assets/
+
+# Mots de passe générés par la rotation automatisée — jamais versionnés
+secrets-rotation/
