@@ -10,9 +10,20 @@ on:
 jobs:
   rotate:
     runs-on: self-hosted
+    env:
+      # Le runner self-hébergé checkout le repo dans SON PROPRE dossier de
+      # travail temporaire, distinct du dossier où Vaultwarden tourne
+      # réellement (celui-ci contient .env, non versionné). On doit donc
+      # cibler explicitement le vrai dossier de déploiement par chemin
+      # absolu plutôt que de compter sur le dossier de checkout.
+      DEPLOY_DIR: /Users/sabrinatchouar/Desktop/Cours/Master/M1/DevSecOps/VaultWarden-Sabsab
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Vérifier que le dossier de déploiement existe
+        run: |
+          if [ ! -f "$DEPLOY_DIR/.env" ]; then
+            echo "::error::$DEPLOY_DIR/.env introuvable. Vérifie la variable DEPLOY_DIR dans ce workflow."
+            exit 1
+          fi
 
       - name: Générer un nouveau mot de passe admin aléatoire
         id: gen_password
@@ -38,20 +49,22 @@ jobs:
 
       - name: Mettre à jour .env avec le nouveau hash
         run: |
+          cd "$DEPLOY_DIR"
           # Échappe les $ pour Docker Compose (voir l'incident rencontré en brique 1)
           ESCAPED_HASH=$(echo "$NEW_HASH" | sed 's/\$/\$\$/g')
           sed -i.bak "s|^ADMIN_TOKEN=.*|ADMIN_TOKEN=${ESCAPED_HASH}|" .env
           rm -f .env.bak
 
       - name: Redémarrer Vaultwarden avec le nouveau token
-        run: docker compose up -d --force-recreate vaultwarden
+        run: cd "$DEPLOY_DIR" && docker compose up -d --force-recreate vaultwarden
 
       - name: Sauvegarder le nouveau mot de passe en clair, localement uniquement
-        # Écrit UNIQUEMENT sur le disque du runner self-hébergé (ta machine).
-        # Ne transite jamais par les logs GitHub ni par un artefact CI.
+        # Écrit UNIQUEMENT sur le disque du runner self-hébergé (ta machine),
+        # dans le vrai dossier de déploiement. Ne transite jamais par les
+        # logs GitHub ni par un artefact CI.
         run: |
-          mkdir -p secrets-rotation
-          echo "Nouveau mot de passe admin généré le $(date) : $NEW_PASSWORD" > "secrets-rotation/admin-password-$(date +%Y%m%d-%H%M%S).txt"
+          mkdir -p "$DEPLOY_DIR/secrets-rotation"
+          echo "Nouveau mot de passe admin généré le $(date) : $NEW_PASSWORD" > "$DEPLOY_DIR/secrets-rotation/admin-password-$(date +%Y%m%d-%H%M%S).txt"
           echo "Fichier écrit localement dans secrets-rotation/ (jamais transmis à GitHub)."
 
       - name: Générer le rapport de rotation (artefact CI)
